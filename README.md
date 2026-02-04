@@ -1,4 +1,9 @@
 
+Firebase API Key Upload to Secret Manager:
+
+```
+echo -n "AIzaSy..." | gcloud secrets versions add REACT_APP_FIREBASE_API_KEY --data-file=-
+```
 
 Running the projector:
 

@@ -1,17 +1,21 @@
 steps:
-  # 1. Build the React Frontend
+  # 1. Install Dependencies
   - name: 'node:20'
     entrypoint: 'npm'
     args: ['install']
     dir: 'frontend'
-  - name: 'node:20'
-    entrypoint: 'npm'
-    args: ['run', 'build']
-    dir: 'frontend'
-    env:
-      - 'REACT_APP_ADMIN_PASSWORD=ClassicalRemix'
 
-  # 2. Build the Go Server Docker image
+  # 2. Build the React Frontend with Secret
+  - name: 'node:20'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        npm run build
+    dir: 'frontend'
+    secretEnv: ['REACT_APP_FIREBASE_API_KEY']
+
+  # 3. Build the Go Server Docker image
   - name: 'gcr.io/cloud-builders/docker'
     args: [
       'build', 
@@ -20,11 +24,10 @@ steps:
       '.'
     ]
 
-  # 3. Push to Artifact Registry
+  # 4. Push and 5. Deploy remain the same...
   - name: 'gcr.io/cloud-builders/docker'
     args: ['push', 'us-central1-docker.pkg.dev/${PROJECT_ID}/jukebox-repo/jukebox-server:latest']
 
-  # 4. Deploy to Cloud Run
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     entrypoint: gcloud
     args:
@@ -36,3 +39,9 @@ steps:
       - '--region'
       - 'us-central1'
       - '--allow-unauthenticated'
+
+# 6. Secret ENV mapping
+availableSecrets:
+  secretManager:
+    - versionName: projects/$PROJECT_NUMBER/secrets/REACT_APP_FIREBASE_API_KEY/versions/latest
+      env: 'REACT_APP_FIREBASE_API_KEY'

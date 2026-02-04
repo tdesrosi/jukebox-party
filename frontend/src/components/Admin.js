@@ -13,18 +13,18 @@ const Admin = () => {
             setQueue(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
         });
 
-        const credRef = doc(db, "settings", "global_credits");
+        const credRef = doc(db, "party", "current_state");
         const unsubscribeCredits = onSnapshot(credRef, (snapshot) => {
-            if (snapshot.exists()) setCredits(snapshot.data().count);
+            if (snapshot.exists()) setCredits(snapshot.data().credits);
         });
 
         return () => { unsubscribeQueue(); unsubscribeCredits(); };
     }, []);
 
     const adjustCredits = async (amount) => {
-        const credRef = doc(db, "settings", "global_credits");
+        const credRef = doc(db, "party", "current_state");
         const newCount = Math.max(0, credits + amount);
-        await updateDoc(credRef, { count: newCount });
+        await updateDoc(credRef, { credits: newCount });
     };
 
     const toggleComplete = async (id, status) => {
@@ -148,19 +148,21 @@ const Admin = () => {
                         </div>
 
                         <div className="flex items-center gap-2">
-                            {/* NEW: Remove Button */}
+                            {/* Remove Button */}
                             <button
                                 onClick={() => removeRequest(song.id)}
-                                className="p-3 text-white/10 hover:text-red-500 transition-colors"
+                                className="p-3 text-red-400 hover:text-red-200 bg-red-500/10 rounded-xl active:scale-90 transition-all border border-red-500/20"
+                                title="Remove Request"
                             >
                                 <Trash2 size={18} />
                             </button>
 
+                            {/* Mark as Completed Button */}
                             <button
                                 onClick={() => toggleComplete(song.id, true)}
-                                className="p-3 text-white/20 hover:text-[#FF5A5F] transition-colors"
+                                className="p-3 text-red-400 hover:text-red-200 bg-red-500/10 rounded-xl active:scale-90 transition-all border border-red-500/20"
                             >
-                                <CheckCircle size={20} />
+                                <CheckCircle size={24} />
                             </button>
                         </div>
                     </div>

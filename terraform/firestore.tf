@@ -15,7 +15,7 @@ resource "google_firestore_document" "party_state" {
   # Firestore documents in Terraform use a JSON-encoded string for fields
   fields = jsonencode({
     credits = {
-      integerValue = "10"
+      integerValue = "0"
     }
     isActive = {
       booleanValue = true

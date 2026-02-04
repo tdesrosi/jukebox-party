@@ -14,5 +14,3 @@ resource "google_service_account_iam_member" "cloudbuild_sa_user" {
   role               = "roles/iam.serviceAccountUser"
   member             = "serviceAccount:${data.google_project.project.number}@cloudbuild.gserviceaccount.com"
 }
-
-data "google_project" "project" {}

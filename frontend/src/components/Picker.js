@@ -2,7 +2,9 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Filter } from 'bad-words';
 import axios from 'axios';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Search, ChevronRight } from 'lucide-react'; // KEEP 'X' HERE
+import { X, Search, ChevronRight, Ticket } from 'lucide-react'; // Added Ticket icon
+import { db } from '../firebaseConfig'; // Import your firebase config
+import { doc, onSnapshot } from 'firebase/firestore';
 
 
 const Picker = () => {
@@ -13,11 +15,23 @@ const Picker = () => {
     const [selectedSong, setSelectedSong] = useState(null);
     const [userName, setUserName] = useState('');
     const [isModalOpen, setIsModalOpen] = useState(false);
+    const [credits, setCredits] = useState(0); // New state for credits
 
     const scrollContainerRef = useRef(null);
-
     const filter = new Filter();
 
+    // Listen for live credit updates
+    useEffect(() => {
+        const credRef = doc(db, "party", "current_state");
+        const unsubscribe = onSnapshot(credRef, (snapshot) => {
+            if (snapshot.exists()) {
+                setCredits(snapshot.data().credits);
+            }
+        });
+        return () => unsubscribe();
+    }, []);
+
+    // Fetch library
     useEffect(() => {
         axios.get('/api/library')
             .then(res => {
@@ -57,40 +71,59 @@ const Picker = () => {
     };
 
     const handleRequest = async () => {
-        try {
-            // Sanitize the name before sending
-            const cleanName = validateName(userName.trim());
+        if (credits <= 0) {
+            alert("No credits remaining! Please see the attendant.");
+            return;
+        }
 
+        try {
+            const cleanName = validateName(userName.trim());
             await axios.post('/api/request', {
                 songId: selectedSong.id,
                 userName: cleanName
             });
-
             setIsModalOpen(false);
             setUserName('');
-            // No alert needed for success unless you want one
         } catch (err) {
-            alert("No credits remaining! Please see the attendant.");
+            alert("Request failed. Please try again.");
         }
     };
 
     return (
         <div className="relative w-full min-h-screen bg-[#0a0a0a] text-white font-sans overflow-y-visible">
-
             {/* STICKY HEADER */}
             <div className="sticky top-0 z-30 bg-[#0a0a0a]/95 backdrop-blur-2xl border-b border-white/5 px-6 pt-8 pb-6">
                 <div className="max-w-7xl mx-auto">
                     <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-8">
-                        <h1 className="text-3xl font-serif italic text-[#FF5A5F]">Classical Remix</h1>
-                        <div className="relative w-full md:w-96">
-                            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-white/20" size={20} />
-                            <input
-                                type="text"
-                                placeholder="Search library..."
-                                className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 pl-12 pr-4 outline-none focus:border-[#FF5A5F]"
-                                value={searchQuery}
-                                onChange={(e) => setSearchQuery(e.target.value)}
-                            />
+                        <div>
+                            <h1 className="text-3xl font-serif italic text-[#FF5A5F]">Classical Remix</h1>
+                            {/* Mobile Credit View */}
+                            <div className="md:hidden flex items-center gap-2 mt-2 text-white/40 text-xs uppercase tracking-widest font-bold">
+                                <Ticket size={14} className="text-[#FF5A5F]" />
+                                <span>{credits} Requests Left</span>
+                            </div>
+                        </div>
+
+                        <div className="flex items-center gap-4 w-full md:w-auto">
+                            {/* SEARCH BAR */}
+                            <div className="relative flex-1 md:w-80">
+                                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-white/20" size={20} />
+                                <input
+                                    type="text"
+                                    placeholder="Search library..."
+                                    className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 pl-12 pr-4 outline-none focus:border-[#FF5A5F]"
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                />
+                            </div>
+
+                            {/* DESKTOP CREDIT COUNTER */}
+                            <div className="hidden md:flex items-center gap-4 bg-white/5 border border-white/10 px-6 py-4 rounded-2xl shadow-xl">
+                                <div className="text-right">
+                                    <p className="text-xl font-serif italic text-[#FF5A5F] leading-none">{credits}</p>
+                                </div>
+                                <Ticket className="text-[#FF5A5F]/50" size={24} />
+                            </div>
                         </div>
                     </div>
 
