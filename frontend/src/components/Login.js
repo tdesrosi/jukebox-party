@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Lock } from 'lucide-react';
+import { ADMIN_PASSWORD } from '../config';
 
 const Login = () => {
     const [password, setPassword] = useState('');
@@ -10,7 +11,7 @@ const Login = () => {
         e.preventDefault();
         // Set the festival credentials
         // I don't really care about doing this "right", this works well for now...
-        if (password === 'Remix1234') {
+        if (password === ADMIN_PASSWORD) {
             localStorage.setItem('admin_auth', 'true');
             navigate('/admin');
         } else {

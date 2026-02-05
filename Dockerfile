@@ -10,7 +10,7 @@ RUN go mod download
 COPY . .
 
 # Build the binary
-RUN CGO_ENABLED=0 GOOS=linux go build -o jukebox-app ./cmd/server/main.go
+RUN CGO_ENABLED=0 GOOS=linux go build -o jukebox-app ./cmd/server/
 
 # --- FINAL STAGE ---
 FROM alpine:latest

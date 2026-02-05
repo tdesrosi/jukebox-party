@@ -5,6 +5,8 @@ go 1.25.5
 require (
 	cloud.google.com/go/firestore v1.21.0
 	github.com/gin-gonic/gin v1.11.0
+	github.com/joho/godotenv v1.5.1
+	github.com/stripe/stripe-go/v84 v84.3.0
 )
 
 require (

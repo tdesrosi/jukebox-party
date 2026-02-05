@@ -1,97 +1,182 @@
 # Classical Remix Jukebox
 
-A real-time, cloud-native jukebox system designed for the
-[Classical Remix Music Festival](https://classicalremixmusicfestival.org).
-This platform synchronizes a curated repertoire across guest iPads, a stage
-projector, and a director's mobile remote.
+A real-time, cloud-native jukebox system designed for the [Classical Remix Music Festival](https://classicalremixmusicfestival.org). This platform synchronizes a curated repertoire across guest iPads, a stage projector, and a director's mobile remote, offering both free (ticket-based) and paid (Stripe-integrated) request methods.
 
 ## Architecture
 
 * **Frontend:** React (Framer Motion, Tailwind CSS, Lucide Icons)
-* **Backend:** Go (Standard Library, Google Cloud SDK)
+* **Backend:** Go (Gin Framework, Stripe SDK, Google Cloud SDK)
 * **Database:** Google Cloud Firestore (Real-time synchronization)
 * **Infrastructure:** Terraform & Google Cloud Platform (Cloud Run, Secret Manager)
 
 ---
 
-## Component Details
+## 🎭 Operations Manual: Running a Show
 
-### 1. Guest Picker (/picker)
+This section details how to set up the hardware stations at the venue.
 
-* **Purpose:** Public-facing interface for song requests at [Classical Remix Music Festival](https://classicalremixmusicfestival.org) events.
-* **Validation:** Client-side sanitation for obscenity, gibberish, and length.
-* **Credits:** Real-time counter synced with global state to prevent over-requesting.
+### 1. The Guest Kiosk (iPad)
 
-### 2. Director Admin (/admin)
+* **Hardware:** iPad on a music stand.
+* **Setup:**
+    1. Open Safari and navigate to `https://<YOUR_DOMAIN>/kiosk`.
+    2. Enter the **Kiosk Master Key** (defined in `src/config.js`).
+    3. Click **Authorize Device**.
+    4. The app will redirect to the Picker in **Kiosk Mode** (showing the Ticket icon).
+* **Function:** Guests use physical tickets/credits to request songs without payment.
 
-* **Purpose:** Mobile-optimized remote for festival operations.
-* **Security:** Protected by a login gateway and PrivateRoute wrapper.
-* **Features:**
-  * **Now Playing Hero:** High-visibility card for the current active song.
-  * **Credit Management:** Incremental (+1/-1) control of the shared pool.
-  * **Queue Management:** Ability to complete or permanently remove requests.
-  * **History:** Last three completed songs with one-tap revert functionality.
+### 2. The Stage Projector (Laptop)
 
-### 3. Stage Projector (/projector)
+* **Hardware:** Laptop connected to the venue projector/screen via HDMI.
+* **Setup:**
+    1. Connect to the display and set resolution to 1080p or 4K.
+    2. Launch the projector view in **Kiosk Mode** to hide browser chrome.
 
-* **Purpose:** Minimalist 4K output for the stage display.
-* **Logic:** Automatically updates based on the oldest non-completed request in the queue.
-* **Running:** From Chrome in MacOS, it is possible to use the following command in your terminal to display the page in kiosk mode:
+    **MacOS Chrome Command:**
 
-  ```Bash
-  /Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome --incognito --kiosk --user-data-dir=$(mktemp -d) http://localhost:3000/projector
-  ```
+    ```bash
+    /Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome --incognito --kiosk --user-data-dir=$(mktemp -d) https://<YOUR_DOMAIN>/projector
+    ```
+
+* **Function:** Displays the "Now Playing" song and the next item in the queue.
+
+### 3. The Director's Remote (Phone)
+
+* **Hardware:** Artistic Director's smartphone.
+* **Setup:**
+    1. Go to `https://<YOUR_DOMAIN>/login`.
+    2. Enter the **Admin Password**.
+    3. You will be redirected to the Dashboard.
+* **Function:**
+  * **Advance Queue:** Swipe or tap to mark songs as "Complete."
+  * **Replay Queue:** Revert to a previous song in case it was completed early.
+  * **Refill Credits:** Add or remove credits to the shared kiosk pool.
+  * **Emergency Revert:** Undo the last action if a song was skipped by mistake.
 
 ---
 
-## Deployment and Configuration
+## 🛠️ Engineering Manual: Technical Setup
 
-### 1. Infrastructure Provisioning
+### 1. Prerequisites
 
-Run Terraform to create the Cloud Run services, Artifact Registry, and Secret Manager containers.
+* **Google Cloud Platform:** A project with Billing enabled (Cloud Run, Firestore, Secret Manager, Artifact Registry).
+* **Stripe Account:** Active account with Developer access.
+* **Terraform:** Installed locally for infrastructure provisioning.
 
-```hcl
+### 2. Application Configuration (`src/config.js`)
+
+Ensure `src/config.js` exists in the frontend source. This file manages the hardcoded access keys for the frontend UI components.
+
+```javascript
+export const KIOSK_SECRET = "your-kiosk-passcode";
+export const ADMIN_PASSWORD = "your-admin-passcode";
+```
+
+### 3. Stripe Configuration
+
+Get API Keys:
+
+1. Go to Stripe Dashboard > Developers > API keys.
+2. Copy the Secret Key (sk_test_... or sk_live_...).
+
+Setup Webhook:
+
+1. Go to Developers > Webhooks.
+2. Add Endpoint: https://<YOUR_CLOUD_RUN_URL>/api/webhooks/stripe
+3. Events: Select checkout.session.completed.
+4. Copy the Signing Secret (whsec_...).
+
+### 4. Infrastructure (Terraform)
+
+Initialize and apply the Terraform configuration to create the Cloud Run service, IAM policies, and Secret Manager placeholders.
+
+#### Initialize Terraform
+
+```Bash
 terraform init
+```
+
+#### Apply Infrastructure
+
+```Bash
 terraform apply
 ```
 
-### 2. Secret Management
+### 5. Uploading Secrets
 
-Upload the Firebase API Key to Secret Manager. This key is fetched during the build process to be injected into the React environment.
+We use Google Secret Manager to securely inject credentials at runtime. Do not commit these to Git.
+
+#### React Environment (Build-Time)
+
+Used by Cloud Build to bake the API key into the React app.
 
 ```Bash
-echo -n "YOUR_API_KEY" | gcloud secrets versions add REACT_APP_FIREBASE_API_KEY --data-file=-
+echo -n "YOUR_FIREBASE_API_KEY" | gcloud secrets versions add REACT_APP_FIREBASE_API_KEY --data-file=-
 ```
 
-### 3. Build and Release
+#### Stripe Keys (Runtime)
 
-The Cloud Build pipeline handles the Node.js build (injecting secrets), the Go binary compilation, and the deployment to Cloud Run.
+Injected into the Go server process.
+
+```Bash
+# Stripe Secret Key (sk_...)
+echo -n "sk_test_..." | gcloud secrets versions add STRIPE_SECRET_KEY --data-file=-
+
+# Stripe Webhook Secret (whsec_...)
+echo -n "whsec_..." | gcloud secrets versions add STRIPE_WEBHOOK_SECRET --data-file=-
+```
+
+### 6. Build and Deploy
+
+The cloudbuild.yaml pipeline handles:
+
+* Fetching the Firebase Key from Secret Manager.
+* Building the React Frontend (npm run build).
+* Compiling the Go Backend.
+* Deploying the container to Cloud Run.
 
 ```Bash
 gcloud builds submit --config cloudbuild.yaml .
 ```
 
-## Data Synchronization (Seeder)
+### Data Synchronization (Seeder)
 
-The Go seeder tool populates the library from a CSV file (data/repertoire.csv).
+To reset or populate the song library, use the Go seeder tool. It reads from `data/repertoire.csv`.
 
-Mapping: Category, Artist, Song, AlbumArtURL.
+Mapping: `Category, Artist, Song, AlbumArtURL`
 
-Idempotency: Generates deterministic IDs from Artist and Title to prevent duplicates on repeated runs.
+Execution:
 
-Execution: ```bash go run cmd/seeder/main.go```
+```Bash
+go run cmd/seeder/main.go
+```
 
----
+### Local Development
 
-## Local Development
+For testing without deploying to Cloud Run:
 
-1. **Environment Variables:** Create a `.env` file in the root directory.
-2. **Dependencies:** * `npm install` in the frontend directory.
-    * `go mod download` in the root.
-3. **Execution:**
-    * **Backend:** `go run cmd/server/main.go`
-    * **Frontend:** `cd frontend && npm start`
+#### 1. Environment
 
----
+Create a .env file in the root.
 
-For more information on the organization, visit [classicalremixmusicfestival.org](https://classicalremixmusicfestival.org).
+```Bash
+STRIPE_SECRET_KEY=sk_test_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+DOMAIN_NAME=http://localhost:3000
+GOOGLE_CLOUD_PROJECT=your-project-id
+KIOSK_MASTER_KEY=classical-remix-ipad
+```
+
+#### 2. Start Stripe Tunnel
+
+```Bash
+stripe listen --forward-to localhost:8080/api/webhooks/stripe
+```
+
+#### 3. Run Backend
+
+`go run main.go handlers.go`
+
+#### 4. Run Frontend
+
+`cd frontend && npm start`
