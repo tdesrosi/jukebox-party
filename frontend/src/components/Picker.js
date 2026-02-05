@@ -1,13 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Filter } from 'bad-words';
+import { useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Search, ChevronRight, Ticket } from 'lucide-react'; // Added Ticket icon
-import { db } from '../firebaseConfig'; // Import your firebase config
+import { X, Search, Ticket, CreditCard } from 'lucide-react';
+import { db } from '../firebaseConfig';
 import { doc, onSnapshot } from 'firebase/firestore';
+import { KIOSK_SECRET } from '../config';
 
 
 const Picker = () => {
+    const [isKiosk, setIsKiosk] = useState(false);
     const [songs, setSongs] = useState([]);
     const [genres, setGenres] = useState(["All"]);
     const [activeGenre, setActiveGenre] = useState("All");
@@ -15,23 +18,35 @@ const Picker = () => {
     const [selectedSong, setSelectedSong] = useState(null);
     const [userName, setUserName] = useState('');
     const [isModalOpen, setIsModalOpen] = useState(false);
-    const [credits, setCredits] = useState(0); // New state for credits
+    const [credits, setCredits] = useState(0);
+    const [searchParams, setSearchParams] = useSearchParams();
+    const [notification, setNotification] = useState(null);
 
     const scrollContainerRef = useRef(null);
     const filter = new Filter();
 
-    // Listen for live credit updates
+    // 1. Hardware Authorization Check
+    useEffect(() => {
+        const deviceSecret = localStorage.getItem('kiosk_secret');
+        // Matches the secret we discussed for your trusted iPads
+        if (deviceSecret === KIOSK_SECRET) {
+            setIsKiosk(true);
+        }
+    }, []);
+
+    // 2. Global Credit Listener (Only relevant for Kiosk mode)
     useEffect(() => {
         const credRef = doc(db, "party", "current_state");
         const unsubscribe = onSnapshot(credRef, (snapshot) => {
             if (snapshot.exists()) {
+                // Maintained field name: 'credits'
                 setCredits(snapshot.data().credits);
             }
         });
         return () => unsubscribe();
     }, []);
 
-    // Fetch library
+    // 3. Fetch Library
     useEffect(() => {
         axios.get('/api/library')
             .then(res => {
@@ -42,6 +57,32 @@ const Picker = () => {
             });
     }, []);
 
+    // 4. Payment Status Handling
+    useEffect(() => {
+        const paymentStatus = searchParams.get('payment');
+
+        if (paymentStatus === 'success') {
+            setNotification({
+                type: 'success',
+                message: 'Payment received! Your request is in the queue.'
+            });
+            // Clean the URL
+            setSearchParams({}, { replace: true });
+        } else if (paymentStatus === 'cancelled') {
+            setNotification({
+                type: 'error',
+                message: 'Payment cancelled. Your request was not submitted.'
+            });
+            setSearchParams({}, { replace: true });
+        }
+
+        // Auto-hide notification after 5 seconds
+        if (notification) {
+            const timer = setTimeout(() => setNotification(null), 5000);
+            return () => clearTimeout(timer);
+        }
+    }, [searchParams, notification, setSearchParams]);
+
     const filteredSongs = songs.filter(song => {
         const matchesGenre = activeGenre === "All" || song.category === activeGenre;
         const matchesSearch = song.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -49,43 +90,54 @@ const Picker = () => {
         return matchesGenre && matchesSearch;
     });
 
-    // A basic filter for common obscenities and gibberish patterns
     const validateName = (name) => {
         if (!name) return "";
-
-        // 1. Common Obscenity Filter (Expand this list as needed)
         const isObscene = filter.isProfane(name);
-
-        // 2. Gibberish Detection (Checks for 4+ consecutive consonants or repeated chars)
         const hasGibberish = /([^aeiouy\W]{4,})|(.)\2{4,}/i.test(name);
-
-        // 3. Length Check (Names longer than 30 chars are likely junk)
         const isTooLong = name.length > 30;
-
-        if (isObscene || hasGibberish || isTooLong) {
-            console.warn("Input flagged and sanitized.");
-            return ""; // Treat as anonymous
-        }
-
+        if (isObscene || hasGibberish || isTooLong) return "";
         return name;
     };
 
+    // 4. Dual-Mode Request Handler
     const handleRequest = async () => {
-        if (credits <= 0) {
-            alert("No credits remaining! Please see the attendant.");
-            return;
-        }
+        const cleanName = validateName(userName.trim());
 
-        try {
-            const cleanName = validateName(userName.trim());
-            await axios.post('/api/request', {
-                songId: selectedSong.id,
-                userName: cleanName
-            });
-            setIsModalOpen(false);
-            setUserName('');
-        } catch (err) {
-            alert("Request failed. Please try again.");
+        if (isKiosk) {
+            // KIOSK MODE: Check the physical ticket pool
+            if (credits <= 0) {
+                alert("No credits remaining! Please see the attendant.");
+                return;
+            }
+
+            try {
+                await axios.post('/api/request', {
+                    songId: selectedSong.id,
+                    userName: cleanName
+                }, {
+                    headers: { 'X-Kiosk-Secret': KIOSK_SECRET }
+                });
+                setIsModalOpen(false);
+                setUserName('');
+            } catch (err) {
+                alert("Request failed. Please try again.");
+            }
+        } else {
+            // INDIVIDUAL MODE: Initiate Stripe Flow
+            try {
+                const response = await axios.post('/api/create-checkout-session', {
+                    songId: selectedSong.id,
+                    userName: cleanName
+                });
+                // Redirect guest to Stripe Checkout
+                if (response.data && response.data.url) {
+                    window.location.href = response.data.url;
+                } else {
+                    console.error("The backend didn't send a URL property.", response.data);
+                }
+            } catch (err) {
+                alert("Payment system unavailable. Please use the kiosk.");
+            }
         }
     };
 
@@ -93,19 +145,16 @@ const Picker = () => {
         <div className="relative w-full min-h-screen bg-[#0a0a0a] text-white font-sans overflow-y-visible">
             {/* STICKY HEADER */}
             <div className="sticky top-0 z-30 bg-[#0a0a0a]/95 backdrop-blur-2xl border-b border-white/5 px-6 pt-8 pb-6">
-                <div className="max-w-7xl mx-auto">
+                <div className="max-w-7xl mx-auto text-center md:text-left">
                     <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-8">
                         <div>
                             <h1 className="text-3xl font-serif italic text-[#FF5A5F]">Classical Remix</h1>
-                            {/* Mobile Credit View */}
-                            <div className="md:hidden flex items-center gap-2 mt-2 text-white/40 text-xs uppercase tracking-widest font-bold">
-                                <Ticket size={14} className="text-[#FF5A5F]" />
-                                <span>{credits} Requests Left</span>
-                            </div>
+                            <p className="text-white/20 text-[10px] uppercase tracking-[0.3em] mt-1">
+                                {isKiosk ? "Kiosk Station" : "Mobile Request"}
+                            </p>
                         </div>
 
                         <div className="flex items-center gap-4 w-full md:w-auto">
-                            {/* SEARCH BAR */}
                             <div className="relative flex-1 md:w-80">
                                 <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-white/20" size={20} />
                                 <input
@@ -117,13 +166,15 @@ const Picker = () => {
                                 />
                             </div>
 
-                            {/* DESKTOP CREDIT COUNTER */}
-                            <div className="hidden md:flex items-center gap-4 bg-white/5 border border-white/10 px-6 py-4 rounded-2xl shadow-xl">
-                                <div className="text-right">
-                                    <p className="text-xl font-serif italic text-[#FF5A5F] leading-none">{credits}</p>
+                            {/* Show credits ONLY if in Kiosk mode */}
+                            {isKiosk && (
+                                <div className="flex items-center gap-4 bg-white/5 border border-white/10 px-6 py-4 rounded-2xl">
+                                    <div className="text-right">
+                                        <p className="text-xl font-serif italic text-[#FF5A5F] leading-none">{credits}</p>
+                                    </div>
+                                    <Ticket className="text-[#FF5A5F]/50" size={24} />
                                 </div>
-                                <Ticket className="text-[#FF5A5F]/50" size={24} />
-                            </div>
+                            )}
                         </div>
                     </div>
 
@@ -133,15 +184,11 @@ const Picker = () => {
                                 <button
                                     key={g}
                                     onClick={() => setActiveGenre(g)}
-                                    className={`px-8 py-3 rounded-full text-sm font-bold whitespace-nowrap transition-all border ${activeGenre === g ? 'bg-[#FF5A5F] border-[#FF5A5F]' : 'bg-white/5 border-white/10 text-white/40'
-                                        }`}
+                                    className={`px-8 py-3 rounded-full text-sm font-bold transition-all border ${activeGenre === g ? 'bg-[#FF5A5F] border-[#FF5A5F]' : 'bg-white/5 border-white/10 text-white/40'}`}
                                 >
                                     {g}
                                 </button>
                             ))}
-                        </div>
-                        <div className="absolute right-0 top-0 bottom-2 w-20 bg-gradient-to-l from-[#0a0a0a] to-transparent pointer-events-none flex items-center justify-end">
-                            <ChevronRight className="text-white/40 animate-pulse mr-2" />
                         </div>
                     </div>
                 </div>
@@ -169,26 +216,16 @@ const Picker = () => {
                 </div>
             </div>
 
-            {/* MODAL WITH HIGH Z-INDEX */}
+            {/* REQUEST MODAL */}
             <AnimatePresence>
                 {isModalOpen && (
-                    <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/90 backdrop-blur-md"
-                    >
+                    <motion.div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/90 backdrop-blur-md">
                         <div className="absolute inset-0" onClick={() => setIsModalOpen(false)} />
-                        <motion.div
-                            initial={{ opacity: 0, scale: 0.9, y: 20 }}
-                            animate={{ opacity: 1, scale: 1, y: 0 }}
-                            exit={{ opacity: 0, scale: 0.9, y: 20 }}
-                            className="relative bg-[#111] border border-white/10 p-10 rounded-[3rem] max-w-md w-full shadow-2xl text-center z-10"
-                        >
+                        <motion.div className="relative bg-[#111] border border-white/10 p-10 rounded-[3rem] max-w-md w-full shadow-2xl text-center z-10">
                             <button onClick={() => setIsModalOpen(false)} className="absolute top-8 right-8 text-white/20 hover:text-white">
                                 <X size={24} />
                             </button>
-                            {/* ... Rest of modal content ... */}
+
                             <div className="flex flex-col items-center mb-8">
                                 <div className="w-32 h-32 rounded-3xl overflow-hidden border border-white/10 shadow-2xl mb-6">
                                     <img src={selectedSong?.albumArtUrl} className="w-full h-full object-cover" alt="" />
@@ -196,6 +233,7 @@ const Picker = () => {
                                 <h2 className="text-2xl font-serif italic text-[#FF5A5F] mb-1">{selectedSong?.title}</h2>
                                 <p className="text-white/40 uppercase tracking-widest text-xs">{selectedSong?.artist}</p>
                             </div>
+
                             <div className="mb-8">
                                 <p className="text-white/60 text-sm mb-4">Dedicate this piece? (Optional)</p>
                                 <input
@@ -206,10 +244,46 @@ const Picker = () => {
                                     onChange={(e) => setUserName(e.target.value)}
                                 />
                             </div>
-                            <button onClick={handleRequest} className="w-full bg-[#FF5A5F] text-white font-bold rounded-2xl py-5 shadow-lg shadow-[#FF5A5F]/20 active:scale-95 transition-all text-lg">
-                                Confirm Request
+
+                            <button onClick={handleRequest} className="w-full bg-[#FF5A5F] text-white font-bold rounded-2xl py-5 shadow-lg shadow-[#FF5A5F]/20 active:scale-95 transition-all text-lg flex items-center justify-center gap-3">
+                                {isKiosk ? (
+                                    <>Confirm Request</>
+                                ) : (
+                                    <>
+                                        <CreditCard size={20} />
+                                        Pay & Request ($5)
+                                    </>
+                                )}
                             </button>
+
+                            {!isKiosk && (
+                                <p className="text-white/20 text-[10px] uppercase tracking-widest mt-6">
+                                    Processed securely via Stripe
+                                </p>
+                            )}
                         </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
+            {/* Notification Toast */}
+            <AnimatePresence>
+                {notification && (
+                    <motion.div
+                        initial={{ y: -100, opacity: 0 }}
+                        animate={{ y: 20, opacity: 1 }}
+                        exit={{ y: -100, opacity: 0 }}
+                        className={`fixed top-0 left-1/2 -translate-x-1/2 z-[200] px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-3 border ${notification.type === 'success'
+                            ? 'bg-green-500/10 border-green-500/50 text-green-400'
+                            : 'bg-red-500/10 border-red-500/50 text-red-400'
+                            } backdrop-blur-xl`}
+                    >
+                        {notification.type === 'success' ? (
+                            <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+                        ) : (
+                            <X size={18} />
+                        )}
+                        <span className="font-bold text-sm tracking-wide">{notification.message}</span>
                     </motion.div>
                 )}
             </AnimatePresence>
