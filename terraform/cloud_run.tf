@@ -26,6 +26,18 @@ resource "google_cloud_run_v2_service" "jukebox_server" {
         value = var.project_id
       }
 
+      # Inject Admin Password (/admin)
+      env {
+        name  = "ADMIN_PASSWORD"
+        value = "Remix1234!"
+      }
+
+      # Inject Kiosk Key (saved in local browser storage to unlock kiosk features))
+      env {
+        name  = "KIOSK_MASTER_KEY"
+        value = "classical-remix-kiosk"
+      }
+
       env {
         name = "STRIPE_SECRET_KEY"
         value_source {
