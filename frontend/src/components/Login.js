@@ -1,47 +1,51 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import axios from 'axios';
 import { Lock } from 'lucide-react';
-import { ADMIN_PASSWORD } from '../config';
 
 const Login = () => {
     const [password, setPassword] = useState('');
+    const [error, setError] = useState(false);
     const navigate = useNavigate();
 
-    const handleLogin = (e) => {
+    const handleLogin = async (e) => {
         e.preventDefault();
-        // Set the festival credentials
-        // I don't really care about doing this "right", this works well for now...
-        if (password === ADMIN_PASSWORD) {
-            localStorage.setItem('admin_auth', 'true');
-            navigate('/admin');
-        } else {
-            alert("Incorrect access code.");
+        try {
+            const res = await axios.post('/api/auth/verify', { password });
+
+            if (res.data.valid) {
+                // 1. Authorize Admin
+                localStorage.setItem('admin_auth', 'true');
+
+                // 2. Authorize Kiosk (The "Handshake")
+                if (res.data.kioskSecret) {
+                    localStorage.setItem('kiosk_secret', res.data.kioskSecret);
+                }
+
+                navigate('/admin');
+            }
+        } catch (err) {
+            setError(true);
+            setPassword('');
         }
     };
-
+    // ... render return ...
     return (
-        <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center p-6">
-            <form onSubmit={handleLogin} className="w-full max-w-md bg-[#111] border border-white/10 p-10 rounded-[3rem] text-center shadow-2xl">
-                <div className="bg-[#FF5A5F]/10 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-6">
-                    <Lock className="text-[#FF5A5F]" size={28} />
+        <div className="flex flex-col items-center justify-center h-screen bg-black text-white">
+            <form onSubmit={handleLogin} className="flex flex-col gap-4 w-64">
+                <div className="flex justify-center mb-4">
+                    <Lock className="text-[#FF5A5F]" size={48} />
                 </div>
-                <h1 className="text-2xl font-serif italic text-white mb-2">Director Access</h1>
-                <p className="text-white/40 text-sm mb-8 uppercase tracking-widest">Classical Remix Music Festival</p>
-
                 <input
                     type="password"
-                    autoFocus
-                    className="w-full bg-black border border-white/10 rounded-2xl p-5 text-white text-center outline-none focus:border-[#FF5A5F] mb-6 text-xl tracking-[0.5em]"
-                    placeholder="••••"
+                    placeholder="Admin Password"
+                    className="p-3 bg-gray-900 border border-gray-800 rounded-xl text-center outline-none focus:border-[#FF5A5F]"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                 />
-
-                <button
-                    type="submit"
-                    className="w-full bg-[#FF5A5F] text-white font-bold py-5 rounded-2xl shadow-lg shadow-[#FF5A5F]/20 active:scale-95 transition-all"
-                >
-                    Unlock Console
+                {error && <p className="text-red-500 text-xs text-center">Invalid Credentials</p>}
+                <button type="submit" className="bg-[#FF5A5F] py-3 rounded-xl font-bold">
+                    Enter Console
                 </button>
             </form>
         </div>

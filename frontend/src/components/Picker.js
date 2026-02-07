@@ -6,7 +6,6 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { X, Search, Ticket, CreditCard } from 'lucide-react';
 import { db } from '../firebaseConfig';
 import { doc, onSnapshot } from 'firebase/firestore';
-import { KIOSK_SECRET } from '../config';
 
 
 const Picker = () => {
@@ -28,8 +27,10 @@ const Picker = () => {
     // 1. Hardware Authorization Check
     useEffect(() => {
         const deviceSecret = localStorage.getItem('kiosk_secret');
-        // Matches the secret we discussed for your trusted iPads
-        if (deviceSecret === KIOSK_SECRET) {
+
+        // If ANY secret is present, assume we are authorized.
+        // The real check happens when the API is called.
+        if (deviceSecret) {
             setIsKiosk(true);
         }
     }, []);
@@ -115,7 +116,7 @@ const Picker = () => {
                     songId: selectedSong.id,
                     userName: cleanName
                 }, {
-                    headers: { 'X-Kiosk-Secret': KIOSK_SECRET }
+                    headers: { 'X-Kiosk-Secret': localStorage.getItem('kiosk_secret') }
                 });
                 setIsModalOpen(false);
                 setUserName('');

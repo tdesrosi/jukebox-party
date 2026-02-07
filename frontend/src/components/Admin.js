@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../firebaseConfig';
+import { useNavigate } from 'react-router-dom';
 import { collection, query, orderBy, onSnapshot, doc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { Plus, Minus, CheckCircle, RotateCcw, Ticket, History, PlayCircle, Trash2 } from 'lucide-react';
 
 const Admin = () => {
     const [queue, setQueue] = useState([]);
     const [credits, setCredits] = useState(0);
+    const navigate = useNavigate();
 
     useEffect(() => {
         const q = query(collection(db, "queue"), orderBy("timestamp", "desc"));
@@ -47,6 +49,19 @@ const Admin = () => {
 
     return (
         <div className="min-h-screen bg-[#0a0a0a] text-white p-6 font-sans pb-20">
+            <div className="bg-[#111] border border-white/10 rounded-[2.5rem] p-8 mb-8 shadow-2xl">
+                <div className="flex items-center justify-between mb-6">
+                    {/* KIOSK LAUNCHER BUTTON */}
+                    <button
+                        onClick={() => navigate('/picker')}
+                        className="flex items-center gap-2 bg-gray-900 border border-gray-800 px-4 py-2 rounded-xl text-sm hover:border-[#FF5A5F] transition-colors"
+                    >
+                        <Ticket size={16} className="text-[#FF5A5F]" />
+                        <span>Launch Kiosk</span>
+                    </button>
+                </div>
+            </div>
+
             {/* 1. CREDIT MANAGEMENT */}
             <div className="bg-[#111] border border-white/10 rounded-[2.5rem] p-8 mb-8 shadow-2xl">
                 <div className="flex items-center justify-between mb-6">

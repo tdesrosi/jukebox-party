@@ -220,13 +220,24 @@ func handleVerify(c *gin.Context) {
 		return
 	}
 
+	// 1. Get Passwords from Env (Works on Local & Cloud)
 	correctPassword := os.Getenv("ADMIN_PASSWORD")
 	if correctPassword == "" {
-		correctPassword = "ClassicalRemix"
+		correctPassword = "ClassicalRemix" // Default for safety
 	}
 
 	if req.Password == correctPassword {
-		c.JSON(http.StatusOK, gin.H{"valid": true})
+		// 2. Fetch the Kiosk Key to send back
+		kioskKey := os.Getenv("KIOSK_MASTER_KEY")
+		if kioskKey == "" {
+			kioskKey = "classical-remix-ipad" // Default fallback
+		}
+
+		// 3. Return it securely
+		c.JSON(http.StatusOK, gin.H{
+			"valid":       true,
+			"kioskSecret": kioskKey,
+		})
 	} else {
 		c.JSON(http.StatusUnauthorized, gin.H{"valid": false})
 	}
