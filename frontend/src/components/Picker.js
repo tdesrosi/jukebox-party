@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { X, Search, Ticket, CreditCard } from 'lucide-react';
 import { db } from '../firebaseConfig';
 import { doc, onSnapshot } from 'firebase/firestore';
+import { LazyImage } from './LazyImage';
 
 
 const Picker = () => {
@@ -27,9 +28,7 @@ const Picker = () => {
     // 1. Hardware Authorization Check
     useEffect(() => {
         const deviceSecret = localStorage.getItem('kiosk_secret');
-
         // If ANY secret is present, assume we are authorized.
-        // The real check happens when the API is called.
         if (deviceSecret) {
             setIsKiosk(true);
         }
@@ -40,7 +39,6 @@ const Picker = () => {
         const credRef = doc(db, "party", "current_state");
         const unsubscribe = onSnapshot(credRef, (snapshot) => {
             if (snapshot.exists()) {
-                // Maintained field name: 'credits'
                 setCredits(snapshot.data().credits);
             }
         });
@@ -58,31 +56,46 @@ const Picker = () => {
             });
     }, []);
 
-    // 4. Payment Status Handling
+    // 4. Robust Payment Status Handling (Fixes Blank Screen)
     useEffect(() => {
         const paymentStatus = searchParams.get('payment');
 
+        // If there is no payment param, do nothing
+        if (!paymentStatus) return;
+
+        // 1. Set the notification immediately so the user sees feedback
         if (paymentStatus === 'success') {
             setNotification({
                 type: 'success',
                 message: 'Payment received! Your request is in the queue.'
             });
-            // Clean the URL
-            setSearchParams({}, { replace: true });
         } else if (paymentStatus === 'cancelled') {
             setNotification({
                 type: 'error',
                 message: 'Payment cancelled. Your request was not submitted.'
             });
-            setSearchParams({}, { replace: true });
         }
 
-        // Auto-hide notification after 5 seconds
+        // 2. CRITICAL FIX: Wait before cleaning the URL.
+        // This prevents the "Blank Screen" race condition by ensuring 
+        // the component has fully rendered the notification state 
+        // before React Router triggers a navigation event to clean the URL.
+        const cleanupTimer = setTimeout(() => {
+            setSearchParams({}, { replace: true });
+        }, 500); // 500ms delay allows the UI to settle
+
+        return () => clearTimeout(cleanupTimer);
+    }, [searchParams, setSearchParams]);
+
+    // 5. Notification Auto-Dismiss (The 5-Second Timer)
+    useEffect(() => {
         if (notification) {
-            const timer = setTimeout(() => setNotification(null), 5000);
+            const timer = setTimeout(() => {
+                setNotification(null);
+            }, 5000);
             return () => clearTimeout(timer);
         }
-    }, [searchParams, notification, setSearchParams]);
+    }, [notification]);
 
     const filteredSongs = songs.filter(song => {
         const matchesGenre = activeGenre === "All" || song.category === activeGenre;
@@ -100,7 +113,7 @@ const Picker = () => {
         return name;
     };
 
-    // 4. Dual-Mode Request Handler
+    // 6. Dual-Mode Request Handler
     const handleRequest = async () => {
         const cleanName = validateName(userName.trim());
 
@@ -143,7 +156,8 @@ const Picker = () => {
     };
 
     return (
-        <div className="relative w-full min-h-screen bg-[#0a0a0a] text-white font-sans overflow-y-visible">
+        // 'dvh' automatically adjusts when the mobile URL bar slides in/out
+        <div className="relative w-full min-h-[100dvh] bg-[#0a0a0a] text-white font-sans overflow-y-visible">
             {/* STICKY HEADER */}
             <div className="sticky top-0 z-30 bg-[#0a0a0a]/95 backdrop-blur-2xl border-b border-white/5 px-6 pt-8 pb-6">
                 <div className="max-w-7xl mx-auto text-center md:text-left">
@@ -205,9 +219,10 @@ const Picker = () => {
                             onClick={() => { setSelectedSong(song); setIsModalOpen(true); }}
                             className="bg-[#111] rounded-[2.5rem] overflow-hidden border border-white/5 cursor-pointer group hover:border-[#FF5A5F]/40 transition-all"
                         >
-                            <div className="aspect-square relative overflow-hidden bg-gray-900">
-                                <img src={song.albumArtUrl} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" alt="" />
+                            <div className="aspect-square relative overflow-hidden">
+                                <LazyImage src={song.albumArtUrl} alt={song.title} />
                             </div>
+
                             <div className="p-6">
                                 <h3 className="font-bold text-sm truncate mb-1">{song.title}</h3>
                                 <p className="text-[#FF5A5F] text-[10px] uppercase tracking-[0.2em] truncate opacity-70">{song.artist}</p>
@@ -267,24 +282,26 @@ const Picker = () => {
                 )}
             </AnimatePresence>
 
-            {/* Notification Toast */}
+            {/* Notification Toast (Mobile Optimized) */}
             <AnimatePresence>
                 {notification && (
                     <motion.div
                         initial={{ y: -100, opacity: 0 }}
-                        animate={{ y: 20, opacity: 1 }}
+                        animate={{ y: 0, opacity: 1 }}
                         exit={{ y: -100, opacity: 0 }}
-                        className={`fixed top-0 left-1/2 -translate-x-1/2 z-[200] px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-3 border ${notification.type === 'success'
+                        cclassName={`fixed top-4 left-0 right-0 mx-auto z-[200] w-[90%] max-w-md px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-4 border backdrop-blur-xl ${notification.type === 'success'
                             ? 'bg-green-500/10 border-green-500/50 text-green-400'
                             : 'bg-red-500/10 border-red-500/50 text-red-400'
-                            } backdrop-blur-xl`}
+                            }`}
                     >
                         {notification.type === 'success' ? (
-                            <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+                            <div className="flex-shrink-0 w-3 h-3 rounded-full bg-green-400 animate-pulse shadow-[0_0_10px_rgba(74,222,128,0.5)]" />
                         ) : (
-                            <X size={18} />
+                            <X size={20} className="flex-shrink-0" />
                         )}
-                        <span className="font-bold text-sm tracking-wide">{notification.message}</span>
+                        <span className="font-bold text-sm tracking-wide leading-tight">
+                            {notification.message}
+                        </span>
                     </motion.div>
                 )}
             </AnimatePresence>
