@@ -29,7 +29,7 @@ resource "google_cloud_run_v2_service" "jukebox_server" {
       # Inject Admin Password (/admin)
       env {
         name  = "ADMIN_PASSWORD"
-        value = "Remix1234!"
+        value = "Remix1234"
       }
 
       # Inject Kiosk Key (saved in local browser storage to unlock kiosk features))
