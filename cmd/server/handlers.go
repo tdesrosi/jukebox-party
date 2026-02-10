@@ -107,16 +107,23 @@ func handleCreateCheckoutSession(c *gin.Context) {
 	var req struct {
 		SongID   string `json:"songId"`
 		UserName string `json:"userName"`
+		Amount   int64  `json:"amount"` // Amount in cents sent from frontend
 	}
+
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
 		return
 	}
 
-	// Dynamic Domain Resolution
+	// SECURITY: Enforce a minimum of $5.00 (500 cents) server-side
+	// This prevents users from manipulating the frontend to pay less.
+	finalAmount := req.Amount
+	if finalAmount < 500 {
+		finalAmount = 500
+	}
+
 	domain := os.Getenv("DOMAIN_NAME")
 	if domain == "" {
-		// In Cloud Run, c.Request.Host is automatically "jukebox-service-xyz.a.run.app"
 		domain = "https://" + c.Request.Host
 	}
 
@@ -133,7 +140,8 @@ func handleCreateCheckoutSession(c *gin.Context) {
 						Name:        stripe.String("Mobile Song Request"),
 						Description: stripe.String("Live request for the Classical Remix Music Festival"),
 					},
-					UnitAmount: stripe.Int64(500), // $5.00
+					// Use the dynamic amount from the request
+					UnitAmount: stripe.Int64(finalAmount),
 				},
 				Quantity: stripe.Int64(1),
 			},

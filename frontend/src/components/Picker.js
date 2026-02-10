@@ -21,6 +21,7 @@ const Picker = () => {
     const [credits, setCredits] = useState(0);
     const [searchParams, setSearchParams] = useSearchParams();
     const [notification, setNotification] = useState(null);
+    const [contribution, setContribution] = useState(5); // Default to $5
 
     const scrollContainerRef = useRef(null);
     const filter = new Filter();
@@ -137,20 +138,17 @@ const Picker = () => {
                 alert("Request failed. Please try again.");
             }
         } else {
-            // INDIVIDUAL MODE: Initiate Stripe Flow
             try {
                 const response = await axios.post('/api/create-checkout-session', {
                     songId: selectedSong.id,
-                    userName: cleanName
+                    userName: cleanName,
+                    amount: contribution * 100 // Convert dollars to cents for Stripe
                 });
-                // Redirect guest to Stripe Checkout
                 if (response.data && response.data.url) {
-                    window.location.href = response.data.url;
-                } else {
-                    console.error("The backend didn't send a URL property.", response.data);
+                    window.location.assign(response.data.url);
                 }
             } catch (err) {
-                alert("Payment system unavailable. Please use the kiosk.");
+                alert("Payment system unavailable.");
             }
         }
     };
@@ -261,13 +259,27 @@ const Picker = () => {
                                 />
                             </div>
 
+                            <div className="mb-8">
+                                <p className="text-white/60 text-sm mb-4">Support the Festival (Min $5)</p>
+                                <div className="relative max-w-[200px] mx-auto">
+                                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[#FF5A5F] font-bold text-xl">$</span>
+                                    <input
+                                        type="number"
+                                        min="5"
+                                        className="w-full bg-black border border-white/10 rounded-2xl p-5 pl-10 text-white outline-none focus:border-[#FF5A5F] text-center text-2xl font-bold"
+                                        value={contribution}
+                                        onChange={(e) => setContribution(Math.max(5, parseInt(e.target.value) || 0))}
+                                    />
+                                </div>
+                            </div>
+
                             <button onClick={handleRequest} className="w-full bg-[#FF5A5F] text-white font-bold rounded-2xl py-5 shadow-lg shadow-[#FF5A5F]/20 active:scale-95 transition-all text-lg flex items-center justify-center gap-3">
                                 {isKiosk ? (
                                     <>Confirm Request</>
                                 ) : (
                                     <>
                                         <CreditCard size={20} />
-                                        Pay & Request ($5)
+                                        Pay & Request
                                     </>
                                 )}
                             </button>
