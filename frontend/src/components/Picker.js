@@ -21,7 +21,7 @@ const Picker = () => {
     const [credits, setCredits] = useState(0);
     const [searchParams, setSearchParams] = useSearchParams();
     const [notification, setNotification] = useState(null);
-    const [contribution, setContribution] = useState(5); // Default to $5
+    const [contribution, setContribution] = useState("5"); // Store as string for better input handling
 
     const scrollContainerRef = useRef(null);
     const filter = new Filter();
@@ -161,10 +161,12 @@ const Picker = () => {
                     userName: cleanName
                 }));
 
+                const amountToSend = Math.max(5, parseInt(contribution) || 5) * 100;
+
                 const response = await axios.post('/api/create-checkout-session', {
                     songId: selectedSong.id,
                     userName: cleanName,
-                    amount: contribution * 100
+                    amount: amountToSend // Use the safe parsed variable
                 });
 
                 if (response.data && response.data.url) {
@@ -288,10 +290,23 @@ const Picker = () => {
                                         <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[#FF5A5F] font-bold text-xl">$</span>
                                         <input
                                             type="number"
-                                            min="5"
+                                            inputMode="numeric" // Helps mobile keyboards show numbers
+                                            pattern="[0-9]*"    // improved mobile support
                                             className="w-full bg-black border border-white/20 rounded-2xl p-5 pl-10 text-white outline-none focus:border-[#FF5A5F] text-center text-2xl font-bold"
+
+                                            // 1. Bind strictly to the state
                                             value={contribution}
-                                            onChange={(e) => setContribution(Math.max(5, parseInt(e.target.value) || 0))}
+
+                                            // 2. Allow ANY number or empty string while typing
+                                            onChange={(e) => setContribution(e.target.value)}
+
+                                            // 3. Enforce the minimum ONLY when they are done typing
+                                            onBlur={() => {
+                                                const val = parseInt(contribution);
+                                                if (!val || val < 5) {
+                                                    setContribution("5");
+                                                }
+                                            }}
                                         />
                                     </div>
                                 </div>
