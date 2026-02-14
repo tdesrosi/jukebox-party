@@ -57,28 +57,51 @@ const Picker = () => {
     }, []);
 
     // 4. Robust Payment Status Handling
+    // 4. Emergency Payment Handler (Client-Side Queueing)
     useEffect(() => {
         const paymentStatus = searchParams.get('payment');
 
-        if (!paymentStatus) return;
-
         if (paymentStatus === 'success') {
-            setNotification({
-                type: 'success',
-                message: 'Payment received! Your request is in the queue.'
-            });
+            // A. Check for pending request data
+            const pendingData = localStorage.getItem('pending_request');
+
+            if (pendingData) {
+                const { songId, userName } = JSON.parse(pendingData);
+
+                // B. Fire the request immediately
+                axios.post('/api/emergency-request', { songId, userName })
+                    .then(() => {
+                        setNotification({
+                            type: 'success',
+                            message: 'Payment verified! Request added to queue.'
+                        });
+                        // C. Clear storage so we don't duplicate on refresh
+                        localStorage.removeItem('pending_request');
+                    })
+                    .catch(() => {
+                        setNotification({
+                            type: 'error',
+                            message: 'Error queuing song. Please show this to staff.'
+                        });
+                    });
+            } else {
+                // Fallback if local storage failed
+                setNotification({ type: 'success', message: 'Payment Received' });
+            }
         } else if (paymentStatus === 'cancelled') {
             setNotification({
                 type: 'error',
-                message: 'Payment cancelled. Your request was not submitted.'
+                message: 'Payment cancelled.'
             });
         }
 
-        const cleanupTimer = setTimeout(() => {
-            setSearchParams({}, { replace: true });
-        }, 500);
-
-        return () => clearTimeout(cleanupTimer);
+        // Cleanup URL
+        if (paymentStatus) {
+            const timer = setTimeout(() => {
+                setSearchParams({}, { replace: true });
+            }, 1000); // 1 second delay
+            return () => clearTimeout(timer);
+        }
     }, [searchParams, setSearchParams]);
 
     // 5. Notification Auto-Dismiss
@@ -130,12 +153,20 @@ const Picker = () => {
                 alert("Request failed. Please try again.");
             }
         } else {
+            // INDIVIDUAL MODE: Initiate Stripe Flow
             try {
+                // 1. SAVE DATA TO PHONE STORAGE BEFORE LEAVING
+                localStorage.setItem('pending_request', JSON.stringify({
+                    songId: selectedSong.id,
+                    userName: cleanName
+                }));
+
                 const response = await axios.post('/api/create-checkout-session', {
                     songId: selectedSong.id,
                     userName: cleanName,
                     amount: contribution * 100
                 });
+
                 if (response.data && response.data.url) {
                     window.location.assign(response.data.url);
                 }

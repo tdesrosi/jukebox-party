@@ -16,7 +16,6 @@ var client *firestore.Client
 
 func main() {
 	// 1. Environment Loading
-	// K_SERVICE is automatically set by Cloud Run; if it's empty, we're local.
 	if os.Getenv("K_SERVICE") == "" {
 		err := godotenv.Load()
 		if err != nil {
@@ -26,8 +25,6 @@ func main() {
 
 	// 2. Initialize Stripe
 	stripe.Key = os.Getenv("STRIPE_SECRET_KEY")
-
-	// SAFETY CHECK: Fail immediately if key is missing
 	if stripe.Key == "" {
 		log.Fatal("CRITICAL: STRIPE_SECRET_KEY is missing. Check .env or Secret Manager.")
 	}
@@ -49,7 +46,6 @@ func main() {
 	r := gin.Default()
 
 	// Serve static branding assets
-	// Ensure this file exists at ./frontend/public/classical-remix.jpeg relative to the binary
 	r.StaticFile("/classical-remix.jpeg", "./frontend/public/classical-remix.jpeg")
 
 	// --- API ROUTES ---
@@ -58,6 +54,8 @@ func main() {
 		// 1. Library & Kiosk Handlers
 		api.GET("/library", handleLibrary)
 		api.POST("/request", handleRequest)
+
+		api.POST("/emergency-request", handleEmergencyRequest)
 
 		// 2. Individual Mobile Pay Endpoints
 		api.POST("/create-checkout-session", handleCreateCheckoutSession)
@@ -81,8 +79,6 @@ func main() {
 	r.StaticFile("/favicon.ico", "./frontend/build/favicon.ico")
 	r.StaticFile("/manifest.json", "./frontend/build/manifest.json")
 
-	// --- Apple Pay Verification ---
-	// Ensure the file is physically located at ./static/apple-developer-merchantid-domain-association
 	r.StaticFile("/.well-known/apple-developer-merchantid-domain-association", "./static/apple-developer-merchantid-domain-association")
 
 	// Catch-all for React Router
