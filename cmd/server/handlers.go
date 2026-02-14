@@ -170,47 +170,68 @@ func handleStripeWebhook(c *gin.Context) {
 		return
 	}
 
+	// 1. Verify the Signature
 	endpointSecret := os.Getenv("STRIPE_WEBHOOK_SECRET")
 	signatureHeader := c.GetHeader("Stripe-Signature")
 	event, err := webhook.ConstructEvent(payload, signatureHeader, endpointSecret)
 	if err != nil {
+		log.Printf("⚠️  Webhook signature verification failed: %v", err)
 		c.Status(http.StatusBadRequest)
 		return
 	}
 
+	// 2. Handle the specific event type
 	if event.Type == "checkout.session.completed" {
 		var session stripe.CheckoutSession
 
-		// Use json.Unmarshal on the raw object data
+		// Unmarshal the event data into the Stripe Session struct
 		err := json.Unmarshal(event.Data.Raw, &session)
 		if err != nil {
-			log.Printf("Error unmarshaling Stripe session: %v", err)
-			c.Status(http.StatusInternalServerError)
+			log.Printf("Error parsing webhook JSON: %v", err)
+			c.Status(http.StatusBadRequest)
 			return
 		}
 
-		// Now you can safely access metadata
+		// 3. Extract Metadata safely
+		// Note: In the Stripe Go SDK, Metadata is a map[string]string
 		songID := session.Metadata["songId"]
 		userName := session.Metadata["userName"]
 
+		log.Printf("💰 Payment received! Song: %s, User: %s", songID, userName)
+
 		if songID != "" {
 			ctx := context.Background()
+
+			// 4. Fetch Song Details from Firestore
 			songRef := client.Collection("library").Doc(songID)
 			songDoc, err := songRef.Get(ctx)
-
-			if err == nil {
-				queueRef := client.Collection("queue").NewDoc()
-				_, _ = queueRef.Create(ctx, map[string]interface{}{
-					"title":       songDoc.Data()["title"],
-					"artist":      songDoc.Data()["artist"],
-					"albumArtUrl": songDoc.Data()["albumArtUrl"],
-					"requestedBy": userName,
-					"isCompleted": false,
-					"timestamp":   firestore.ServerTimestamp,
-					"source":      "stripe",
-				})
-				log.Printf("Stripe request added to queue: %s by %s", songDoc.Data()["title"], userName)
+			if err != nil {
+				log.Printf("❌ Error fetching song %s: %v", songID, err)
+				// We return 200 anyway so Stripe doesn't keep retrying a bad ID
+				c.Status(http.StatusOK)
+				return
 			}
+
+			// 5. Add to Queue
+			// We use .NewDoc() to generate a random ID
+			queueRef := client.Collection("queue").NewDoc()
+			_, err = queueRef.Set(ctx, map[string]interface{}{
+				"title":       songDoc.Data()["title"],
+				"artist":      songDoc.Data()["artist"],
+				"albumArtUrl": songDoc.Data()["albumArtUrl"],
+				"requestedBy": userName,
+				"isCompleted": false,
+				"timestamp":   firestore.ServerTimestamp, // Correct usage
+				"source":      "stripe",
+			})
+
+			if err != nil {
+				log.Printf("❌ Failed to write to queue: %v", err)
+				c.Status(http.StatusInternalServerError)
+				return
+			}
+
+			log.Printf("✅ Song added to queue successfully")
 		}
 	}
 
@@ -302,4 +323,45 @@ func handleRefill(c *gin.Context) {
 		return
 	}
 	c.JSON(200, gin.H{"status": "Credits added"})
+}
+
+// EMERGENCY HANDLER: Bypasses Stripe Webhooks and Kiosk Checks
+func handleEmergencyRequest(c *gin.Context) {
+	var req struct {
+		SongID   string `json:"songId"`
+		UserName string `json:"userName"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
+		return
+	}
+
+	ctx := context.Background()
+
+	// 1. Fetch Song Details
+	songRef := client.Collection("library").Doc(req.SongID)
+	songDoc, err := songRef.Get(ctx)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Song lookup failed"})
+		return
+	}
+
+	// 2. Write to Queue Directly
+	_, err = client.Collection("queue").NewDoc().Create(ctx, map[string]interface{}{
+		"title":       songDoc.Data()["title"],
+		"artist":      songDoc.Data()["artist"],
+		"albumArtUrl": songDoc.Data()["albumArtUrl"],
+		"requestedBy": req.UserName,
+		"isCompleted": false,
+		"timestamp":   firestore.ServerTimestamp,
+		"source":      "web-emergency", // Tagged so you can track it later
+	})
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Queue write failed"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "queued"})
 }
